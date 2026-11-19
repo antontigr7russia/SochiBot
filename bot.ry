@@ -11,17 +11,14 @@ from openai import AsyncOpenAI
 TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
 
-AI_BASE_URL = "https://aitunnel.ru"
-
-logging.basicConfig(level=logging.INFO)
-
-bot = Bot(token=TELEGRAM_TOKEN)
-dp = Dispatcher()
-
 ai_client = AsyncOpenAI(
     api_key=AI_API_KEY,
-    base_url=AI_BASE_URL
+    base_url="https://api.aitunnel.ru/v1"
 )
+
+logging.basicConfig(level=logging.INFO)
+bot = Bot(token=TELEGRAM_TOKEN)
+dp = Dispatcher()
 
 class BotStates(StatesGroup):
     waiting_for_good_traits = State()
@@ -36,49 +33,39 @@ main_keyboard = ReplyKeyboardMarkup(
 )
 
 PROMPT_GOOD = """
-Ты — мудрый психолог, наставник и аналитик человеческих судеб. 
-Пользователь опишет черты характера, привычки или поведение человека, на которого он хочет равняться.
-Твоя задача — дать честный, глубокий и структурированный разбор по пунктам:
+Ты — мудрый психолог и аналитик человеческих судеб. Пользователь опишет черты характера или поведение человека, на которого он хочет равняться.
+Дай структурированный разбор по пунктам:
 1. Оценка ориентира: стоит ли брать такого человека за образец и в чём его главная сила.
-2. Скрытые риски: какие минусы, перекосы или опасности могут скрываться за этими чертами (когда равняться на него вредно).
-3. Реальные примеры: приведи 2–3 известных исторических личности, выдающихся деятелей или ярких примера людей с такими качествами.
-4. Альтернатива: если выбранный образ слишком противоречив или опасен для психики/жизни, посоветуй, на кого лучше переключить фокус и почему.
-Пиши живым, понятным русским языком, без воды, с абзацами и списками.
+2. Скрытые риски: какие минусы или опасности могут скрываться за этими чертами.
+3. Реальные примеры: приведи 2–3 известных исторических личности или ярких примера людей с такими качествами.
+4. Альтернатива: если образ слишком противоречив, посоветуй, на кого лучше переключить фокус.
+Пиши живым русским языком, чётко и без воды.
 """
 
 PROMPT_BAD = """
-Ты — мудрый психолог, эксперт по токсичному поведению и жизненным стратегиям.
-Пользователь опишет черты характера, поступки или типаж человека (возможно, плохой или разрушительный пример).
-Твоя задача — дать чёткий и отрезвляющий разбор по пунктам:
-1. Почему нельзя брать пример: объясни, к каким последствиям в жизни, отношениях и карьере приводят эти черты.
-2. Примеры из истории или жизни: приведи 2–3 ярких примера людей или известных типажей, которых погубили или завели в тупик подобные качества.
-3. Здоровая альтернатива: покажи, какими сильными и созидательными качествами стоит заменить это поведение, и на кого лучше равняться вместо этого.
-Пиши объективно, без морализаторства, понятным языком с чёткой структурой.
+Ты — мудрый психолог и эксперт по жизненным стратегиям. Пользователь опишет черты характера или поступки человека (плохой или разрушительный пример).
+Дай отрезвляющий разбор по пунктам:
+1. Почему нельзя брать пример: к каким последствиям в жизни, отношениях и карьере приводят эти черты.
+2. Примеры из истории или жизни: 2–3 ярких примера людей или типажей, которых погубили подобные качества.
+3. Здоровая альтернатива: какими созидательными качествами стоит заменить это поведение и на кого лучше равняться.
+Пиши объективно и структурировано.
 """
 
-ACTIVE_MODEL = None
-
-async def get_working_model() -> str:
-    global ACTIVE_MODEL
-    if ACTIVE_MODEL:
-        return ACTIVE_MODEL
-    models_page = await ai_client.models.list()
-    available = [m.id for m in models_page.data]
-    logging.info(f"Доступные модели на сервере: {available}")
-    for candidate in available:
-        if "deepseek" in candidate.lower() and "flash" in candidate.lower():
-            ACTIVE_MODEL = candidate
-            return ACTIVE_MODEL
-    for candidate in available:
-        if "deepseek" in candidate.lower():
-            ACTIVE_MODEL = candidate
-            return ACTIVE_MODEL
-    for candidate in available:
-        if "gpt-4o-mini" in candidate.lower():
-            ACTIVE_MODEL = candidate
-            return ACTIVE_MODEL
-    ACTIVE_MODEL = available[0]
-    return ACTIVE_MODEL
+async def get_ai_response(system_prompt: str, user_text: str) -> str:
+    try:
+        response = await ai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text}
+            ],
+            temperature=0.7,
+            max_tokens=1500
+        )
+        return response.choices.message.content
+    except Exception as e:
+        logging.error(f"Ошибка ИИ: {e}")
+        return f"Ошибка от AITUNNEL: {e}"
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -92,37 +79,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
 @dp.message(F.text == "🌟 Узнать, на кого равняться")
 async def ask_good_traits(message: types.Message, state: FSMContext):
     await state.set_state(BotStates.waiting_for_good_traits)
-    await message.answer(
-        "Опиши черты характера, привычки или ценности человека, на которого ты хочешь равняться.\n\n"
-        "Например: *«Целеустремлённый, жёсткий в бизнесе, работает по 14 часов, не терпит слабости»* или *«Спокойный, умеет слушать, помогает другим, не гонится за деньгами»*.",
-        parse_mode="Markdown"
-    )
+    await message.answer("Опиши черты характера, привычки или ценности человека, на которого ты хочешь равняться:")
 
 @dp.message(F.text == "⚠️ Разобрать плохой пример")
 async def ask_bad_traits(message: types.Message, state: FSMContext):
     await state.set_state(BotStates.waiting_for_bad_traits)
-    await message.answer(
-        "Опиши черты характера, привычки или поведение человека, которое вызывает сомнения или кажется разрушительным.\n\n"
-        "Я объясню, почему с него не стоит брать пример, к чему это приводит и какие есть здоровые альтернативы.",
-        parse_mode="Markdown"
-    )
-
-async def get_ai_response(system_prompt: str, user_text: str) -> str:
-    try:
-        model_id = await get_working_model()
-        response = await ai_client.chat.completions.create(
-            model=model_id,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_text}
-            ],
-            temperature=0.7,
-            max_tokens=1500
-        )
-        return response.choices.message.content
-    except Exception as e:
-        logging.error(f"Ошибка при обращении к ИИ: {e}")
-        return f"Ошибка при обращении к ИИ: {e}"
+    await message.answer("Опиши черты характера или поведение человека, которое вызывает сомнения:")
 
 @dp.message(BotStates.waiting_for_good_traits)
 async def process_good_traits(message: types.Message, state: FSMContext):
@@ -142,10 +104,7 @@ async def process_bad_traits(message: types.Message, state: FSMContext):
 
 @dp.message()
 async def fallback_handler(message: types.Message):
-    await message.answer(
-        "Пожалуйста, сначала выбери один из режимов с помощью кнопок внизу 👇",
-        reply_markup=main_keyboard
-    )
+    await message.answer("Пожалуйста, выбери один из режимов с помощью кнопок внизу 👇", reply_markup=main_keyboard)
 
 async def main():
     print("Бот успешно запущен и готов к работе!")
