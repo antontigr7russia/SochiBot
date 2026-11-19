@@ -1,3 +1,4 @@
+import os
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F, types
@@ -7,11 +8,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from openai import AsyncOpenAI
 
-TELEGRAM_TOKEN = "9223883694:AAGEzmJcaS82wQW-gAHJ1xUyRXpXXs841aU"
-AI_API_KEY = "sk-aitunnel-pV8KiGz6WTOByGQVib825RvKYaRZlYNK"
+TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")
+AI_API_KEY = os.getenv("AI_API_KEY")
 
 AI_BASE_URL = "https://aitunnel.ru"
-MODEL_NAME = "deepseek-chat"
+MODEL_NAME = "deepseek/deepseek-chat"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -97,7 +98,7 @@ async def get_ai_response(system_prompt: str, user_text: str) -> str:
         return response.choices.message.content
     except Exception as e:
         logging.error(f"Ошибка при обращении к ИИ: {e}")
-        return "Произошла техническая ошибка при анализе. Пожалуйста, попробуйте ещё раз через минуту."
+        return f"Произошла техническая ошибка при анализе ({e}). Пожалуйста, попробуйте ещё раз через минуту."
 
 @dp.message(BotStates.waiting_for_good_traits)
 async def process_good_traits(message: types.Message, state: FSMContext):
