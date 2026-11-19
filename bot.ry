@@ -12,7 +12,7 @@ TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
 
 AI_BASE_URL = "https://aitunnel.ru"
-MODEL_NAME = "deepseek-v4.1-flash-1017"
+MODEL_NAME = "deepseek/deepseek-v4.1-flash-1017"
 
 logging.basicConfig(level=logging.INFO)
 
