@@ -12,7 +12,6 @@ TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
 
 AI_BASE_URL = "https://aitunnel.ru"
-MODEL_NAME = "deepseek/deepseek-v4.1-flash-1017"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -57,6 +56,30 @@ PROMPT_BAD = """
 Пиши объективно, без морализаторства, понятным языком с чёткой структурой.
 """
 
+ACTIVE_MODEL = None
+
+async def get_working_model() -> str:
+    global ACTIVE_MODEL
+    if ACTIVE_MODEL:
+        return ACTIVE_MODEL
+    models_page = await ai_client.models.list()
+    available = [m.id for m in models_page.data]
+    logging.info(f"Доступные модели на сервере: {available}")
+    for candidate in available:
+        if "deepseek" in candidate.lower() and "flash" in candidate.lower():
+            ACTIVE_MODEL = candidate
+            return ACTIVE_MODEL
+    for candidate in available:
+        if "deepseek" in candidate.lower():
+            ACTIVE_MODEL = candidate
+            return ACTIVE_MODEL
+    for candidate in available:
+        if "gpt-4o-mini" in candidate.lower():
+            ACTIVE_MODEL = candidate
+            return ACTIVE_MODEL
+    ACTIVE_MODEL = available[0]
+    return ACTIVE_MODEL
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -86,8 +109,9 @@ async def ask_bad_traits(message: types.Message, state: FSMContext):
 
 async def get_ai_response(system_prompt: str, user_text: str) -> str:
     try:
+        model_id = await get_working_model()
         response = await ai_client.chat.completions.create(
-            model=MODEL_NAME,
+            model=model_id,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_text}
@@ -98,7 +122,7 @@ async def get_ai_response(system_prompt: str, user_text: str) -> str:
         return response.choices.message.content
     except Exception as e:
         logging.error(f"Ошибка при обращении к ИИ: {e}")
-        return f"Произошла техническая ошибка при анализе ({e}). Пожалуйста, попробуйте ещё раз через минуту."
+        return f"Ошибка при обращении к ИИ: {e}"
 
 @dp.message(BotStates.waiting_for_good_traits)
 async def process_good_traits(message: types.Message, state: FSMContext):
